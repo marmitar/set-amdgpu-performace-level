@@ -1,58 +1,82 @@
 //! Change `/sys/class/drm/card*/device/power_dpm_force_performance_level`.
 
-// Additional Errors
-#![deny(unsafe_op_in_unsafe_fn)]
-#![deny(clippy::all)]
-#![deny(clippy::allow_attributes)]
-#![deny(clippy::allow_attributes_without_reason)]
-#![deny(clippy::lossy_float_literal)]
-// More Warnings
-#![warn(clippy::alloc_instead_of_core)]
-#![warn(clippy::as_underscore)]
-#![warn(clippy::clone_on_ref_ptr)]
-#![warn(clippy::create_dir)]
-#![warn(clippy::decimal_literal_representation)]
-#![warn(clippy::empty_drop)]
-#![warn(clippy::exhaustive_enums)]
-#![warn(clippy::exit)]
-#![warn(clippy::filetype_is_file)]
-#![warn(clippy::float_cmp_const)]
-#![warn(clippy::fn_to_numeric_cast_any)]
-#![warn(clippy::format_push_string)]
-#![warn(clippy::if_then_some_else_none)]
-#![warn(clippy::infinite_loop)]
-#![warn(clippy::integer_division_remainder_used)]
-#![warn(clippy::map_err_ignore)]
-#![warn(clippy::map_with_unused_argument_over_ranges)]
-#![warn(clippy::mem_forget)]
-#![warn(clippy::missing_assert_message)]
-#![warn(clippy::missing_docs_in_private_items)]
-#![warn(clippy::mixed_read_write_in_expression)]
-#![warn(clippy::multiple_inherent_impl)]
-#![warn(clippy::multiple_unsafe_ops_per_block)]
-#![warn(clippy::mutex_atomic)]
-#![warn(clippy::needless_raw_strings)]
-#![warn(clippy::pedantic, clippy::nursery, clippy::cargo)]
-#![warn(clippy::non_zero_suggestions)]
-#![warn(clippy::panic_in_result_fn)]
-#![warn(clippy::redundant_type_annotations)]
-#![warn(clippy::ref_patterns)]
-#![warn(clippy::rest_pat_in_fully_bound_structs)]
-#![warn(clippy::self_named_module_files)]
-#![warn(clippy::semicolon_outside_block)]
-#![warn(clippy::str_to_string)]
-#![warn(clippy::string_to_string)]
-#![warn(clippy::tests_outside_test_module)]
-#![warn(clippy::try_err)]
-#![warn(clippy::undocumented_unsafe_blocks)]
-#![warn(clippy::unnecessary_safety_comment)]
-#![warn(clippy::unnecessary_safety_doc)]
-#![warn(clippy::unneeded_field_pattern)]
-#![warn(clippy::unseparated_literal_suffix)]
-#![warn(clippy::unused_result_ok)]
-#![warn(clippy::unwrap_in_result)]
-#![warn(clippy::unwrap_used)]
-#![warn(clippy::wildcard_enum_match_arm)]
-#![warn(clippy::unnecessary_self_imports)]
+use std::io;
+use std::os::unix::ffi::OsStrExt;
+use std::process::ExitCode;
 
-fn main() {}
+/// Name of the binary, without possible insecure modifications.
+const PKG_NAME: &str = env!("CARGO_PKG_NAME");
+
+/// Target performance level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum PerfLevel {
+    /// Clocks are forced to the lowest power state.
+    Low,
+    /// Dynamically select the optimal power profile for current conditions in the driver.
+    Auto,
+    /// Clocks are forced to the highest power state.
+    High,
+}
+
+impl PerfLevel {
+    /// Textual value for writing to `power_dpm_force_performance_level`.
+    pub const fn as_contents(self) -> &'static [u8] {
+        match self {
+            Self::Low => b"low",
+            Self::Auto => b"auto",
+            Self::High => b"high",
+        }
+    }
+}
+
+/// Parse performance level from command line.
+#[cold]
+fn parse_args() -> Option<PerfLevel> {
+    let mut args = std::env::args_os().skip(1);
+    match (args.next(), args.next()) {
+        (Some(level), None) => match level.as_bytes() {
+            b"low" => return Some(PerfLevel::Low),
+            b"auto" => return Some(PerfLevel::Auto),
+            b"high" => return Some(PerfLevel::High),
+            arg => eprintln!("{PKG_NAME}: invalid performance level: {}", arg.escape_ascii()),
+        },
+        (None, _) => eprintln!("{PKG_NAME}: missing performance level"),
+        (_, Some(arg)) => eprintln!("{PKG_NAME}: invalid argument: {}", arg.as_bytes().escape_ascii()),
+    }
+
+    eprintln!("Usage: {PKG_NAME} [low|auto|high]");
+    None
+}
+
+/// Return the internal value or print IO errors.
+fn ok<T>(result: io::Result<T>) -> Option<T> {
+    #[cold]
+    #[inline(never)]
+    fn show_error(error: &io::Error) {
+        eprintln!("{PKG_NAME}: {error}");
+    }
+
+    result.inspect_err(show_error).ok()
+}
+
+/// Binary entrypoint.
+#[must_use]
+pub fn main() -> ExitCode {
+    let Some(perf_level) = parse_args() else {
+        return ExitCode::FAILURE;
+    };
+
+    let Some(dir) = ok(std::fs::read_dir("/sys/class/drm/")) else {
+        return ExitCode::FAILURE;
+    };
+
+    for entry in dir {
+        if let Some(mut path) = ok(entry.map(|entry| entry.path())) {
+            path.push("device/power_dpm_force_performance_level");
+            if path.exists() {
+                ok(std::fs::write(path, perf_level.as_contents()));
+            }
+        }
+    }
+    ExitCode::SUCCESS
+}
