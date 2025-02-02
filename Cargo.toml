@@ -1,0 +1,10 @@
+[package]
+name = "set-amgpu-performace-level"
+version = "0.1.0"
+edition = "2024"
+description = "Change /sys/class/drm/card*/device/power_dpm_force_performance_level"
+keywords = ["mkinitcpio", "benchmark", "compression", "linux"]
+readme = "README.md"
+publish = false
+
+[dependencies]
