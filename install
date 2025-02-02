@@ -1,0 +1,10 @@
+#!/usr/bin/sh
+
+CRATE=set-amdgpu-performace-level
+TARGET="/usr/local/bin/$CRATE"
+
+cargo +nightly build --release
+sudo cp "target/release/$CRATE" "$TARGET"
+sudo chown root:root "$TARGET"
+sudo chmod 0755 "$TARGET"
+sudo setcap cap_sys_admin,cap_dac_override+ep "$TARGET"

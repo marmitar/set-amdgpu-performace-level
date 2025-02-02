@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "set-amgpu-performace-level"
+name = "set-amdgpu-performace-level"
 version = "0.1.0"
