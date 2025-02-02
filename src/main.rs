@@ -2,6 +2,7 @@
 
 use std::io;
 use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
 use std::process::ExitCode;
 
 /// Name of the binary, without possible insecure modifications.
@@ -20,7 +21,7 @@ enum PerfLevel {
 
 impl PerfLevel {
     /// Textual value for writing to `power_dpm_force_performance_level`.
-    pub const fn as_contents(self) -> &'static [u8] {
+    const fn as_contents(self) -> &'static [u8] {
         match self {
             Self::Low => b"low",
             Self::Auto => b"auto",
@@ -49,14 +50,14 @@ fn parse_args() -> Option<PerfLevel> {
 }
 
 /// Return the internal value or print IO errors.
-fn ok<T>(result: io::Result<T>) -> Option<T> {
+fn ok<T>(path: &Path, result: io::Result<T>) -> Option<T> {
     #[cold]
     #[inline(never)]
-    fn show_error(error: &io::Error) {
-        eprintln!("{PKG_NAME}: {error}");
+    fn show_error(path: &Path, error: &io::Error) {
+        eprintln!("{PKG_NAME}: {}: {error}", path.display());
     }
 
-    result.inspect_err(show_error).ok()
+    result.inspect_err(|error| show_error(path, error)).ok()
 }
 
 /// Binary entrypoint.
@@ -66,15 +67,18 @@ pub fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    let Some(dir) = ok(std::fs::read_dir("/sys/class/drm/")) else {
+    let sysfs = Path::new("/sys/class/drm");
+    let Some(dir) = ok(sysfs, std::fs::read_dir(sysfs)) else {
         return ExitCode::FAILURE;
     };
 
     for entry in dir {
-        if let Some(mut path) = ok(entry.map(|entry| entry.path())) {
-            path.push("device/power_dpm_force_performance_level");
-            if path.exists() {
-                ok(std::fs::write(path, perf_level.as_contents()));
+        if let Some(mut path) = ok(sysfs, entry.map(|entry| entry.path())) {
+            if matches!(path.file_name(), Some(filename) if filename.as_bytes().starts_with(b"card")) {
+                path.push("device/power_dpm_force_performance_level");
+                if path.exists() {
+                    ok(&path, std::fs::write(&path, perf_level.as_contents()));
+                }
             }
         }
     }
