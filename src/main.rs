@@ -21,6 +21,8 @@ enum PerfLevel {
 
 impl PerfLevel {
     /// Textual value for writing to `power_dpm_force_performance_level`.
+    #[inline]
+    #[must_use]
     const fn as_contents(self) -> &'static [u8] {
         match self {
             Self::Low => b"low",

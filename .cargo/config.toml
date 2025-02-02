@@ -1,0 +1,8 @@
+[unstable]
+build-std = ["std", "panic_abort"]
+
+[build]
+target = "x86_64-unknown-linux-gnu"
+rustflags = [
+  "-C", "target-cpu=native",
+]
